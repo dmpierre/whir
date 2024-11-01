@@ -56,17 +56,19 @@ impl<F: PrimeField, MerkleConfig: Config, P: PowStrategy> Serialize
         state.serialize_field("domainSize", &self.starting_domain.size())?;
         state.serialize_field(
             "startingFoldingPowBits",
-            &(self.starting_folding_pow_bits as usize),
+            &(self.starting_folding_pow_bits.ceil() as usize),
         )?;
+
         state.serialize_field("foldingFactor", &self.folding_factor)?;
         state.serialize_field("roundParameters", &self.round_parameters)?;
         state.serialize_field("finalQueries", &self.final_queries)?;
-        state.serialize_field("finalPowBits", &(self.final_pow_bits as usize))?;
+        state.serialize_field("finalPowBits", &(self.final_pow_bits.ceil() as usize))?;
+
         state.serialize_field("finalLogInvRate", &(self.final_log_inv_rate))?;
         state.serialize_field("finalSumcheckRound", &(self.final_sumcheck_rounds))?;
         state.serialize_field(
             "finalFoldingPowBits",
-            &(self.final_folding_pow_bits as usize),
+            &(self.final_folding_pow_bits.ceil() as usize),
         )?;
         state.end()
     }
