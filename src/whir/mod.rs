@@ -302,12 +302,13 @@ mod evm_tests {
         };
         let full_proof_json = serde_json::to_string_pretty(&full_proof).unwrap();
         let mut file = std::fs::File::create(format!(
-            "proof_{}_{}_{}_{}_{}_{}.json",
+            "proof_{}_{}_{}_{}_{}_{}_{}.json",
             num_variables,
             folding_factor,
             num_points,
             soundness_type,
             pow_bits,
+            starting_log_inv_rate,
             FoldType::ProverHelps
         ))
         .unwrap();
