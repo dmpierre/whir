@@ -243,9 +243,9 @@ mod evm_tests {
         let folding_factor = 4;
         let soundness_type = SoundnessType::ConjectureList;
         let starting_log_inv_rate = 6;
-        let pow_bits = 0;
+        let pow_bits = 10;
         let num_points = 1;
-
+        let security_level = 100;
         let num_coeffs = 1 << num_variables;
 
         let mut rng = ark_std::test_rng();
@@ -254,7 +254,7 @@ mod evm_tests {
         let mv_params = MultivariateParameters::<F>::new(num_variables);
 
         let whir_params = WhirParameters::<MerkleConfig, PowStrategy> {
-            security_level: 100,
+            security_level,
             pow_bits,
             folding_factor,
             leaf_hash_params,
@@ -302,13 +302,14 @@ mod evm_tests {
         };
         let full_proof_json = serde_json::to_string_pretty(&full_proof).unwrap();
         let mut file = std::fs::File::create(format!(
-            "proof_{}_{}_{}_{}_{}_{}_{}.json",
+            "proof_{}_{}_{}_{}_{}_{}_{}_{}.json",
             num_variables,
             folding_factor,
             num_points,
             soundness_type,
             pow_bits,
             starting_log_inv_rate,
+            security_level,
             FoldType::ProverHelps
         ))
         .unwrap();
