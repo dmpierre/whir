@@ -55,9 +55,8 @@ impl<F: Field> EVMFs<F> {
         F::from_base_prime_field(F::BasePrimeField::from_be_bytes_mod_order(&bytes))
     }
 
-    fn keccak(left: &[u8], right: &[u8]) -> [u8; 32] {
-        let to_hash = [left, right].concat();
-        let encoded = encode_packed(&[Token::Bytes(to_hash)]).unwrap();
+    fn keccak(left: &[u8]) -> [u8; 32] {
+        let encoded = encode_packed(&[Token::Bytes(left.to_vec())]).unwrap();
         keccak256(encoded)
     }
 
@@ -67,12 +66,12 @@ impl<F: Field> EVMFs<F> {
     pub fn squeeze_scalars(&mut self, n: usize) -> Vec<F> {
         let mut challenges = Vec::with_capacity(n);
         let n: u32 = n.try_into().unwrap();
-        let mut challenge_bytes = Self::keccak(self.state.as_slice(), &0_u32.to_be_bytes());
+        let mut challenge_bytes = Self::keccak(self.state.as_slice());
         challenges.push(Self::bytes_to_scalar(&challenge_bytes));
 
         // push remaining challenges
         for i in 1..n {
-            challenge_bytes = Self::keccak(&challenge_bytes, &i.to_be_bytes());
+            challenge_bytes = Self::keccak(&challenge_bytes);
             challenges.push(Self::bytes_to_scalar(&challenge_bytes));
         }
 
@@ -87,12 +86,12 @@ impl<F: Field> EVMFs<F> {
         let mut challenges = Vec::with_capacity(n);
 
         let n: u32 = n.try_into().unwrap();
-        let mut challenge_bytes = Self::keccak(self.state.as_slice(), &0_u32.to_be_bytes());
+        let mut challenge_bytes = Self::keccak(self.state.as_slice());
         challenges.push(challenge_bytes);
 
         // push remaining challenges
         for i in 1..n {
-            challenge_bytes = Self::keccak(&challenge_bytes, &i.to_be_bytes());
+            challenge_bytes = Self::keccak(&challenge_bytes);
             challenges.push(challenge_bytes);
         }
 
