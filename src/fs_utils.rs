@@ -8,7 +8,7 @@ use std::{marker::PhantomData, usize};
 use ark_ff::{Field, PrimeField};
 use ark_serialize::SerializationError;
 use ethers_core::{
-    abi::{encode_packed, AbiEncode, Token},
+    abi::{encode_packed, Token},
     types::U256,
     utils::keccak256,
 };
