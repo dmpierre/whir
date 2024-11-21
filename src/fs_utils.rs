@@ -24,14 +24,14 @@ use serde::{ser::SerializeStruct, Serialize};
 pub struct EVMFs<F: Field> {
     _p: PhantomData<F>,
     transcript: Vec<u8>, // holds full script
-    state: Vec<u8>,      // holds values to be hashed for next challenge derivation
+    pub state: [u8; 32], // holds values to be hashed for next challenge derivation
 }
 
 impl<F: Field> EVMFs<F> {
     pub fn new() -> Self {
         Self {
             transcript: vec![],
-            state: vec![],
+            state: [0; 32],
             _p: PhantomData,
         }
     }
@@ -39,7 +39,7 @@ impl<F: Field> EVMFs<F> {
     pub fn to_arthur(&self) -> Self {
         Self {
             transcript: self.transcript.clone(),
-            state: vec![],
+            state: [0; 32],
             _p: PhantomData,
         }
     }
@@ -75,7 +75,6 @@ impl<F: Field> EVMFs<F> {
             challenges.push(Self::bytes_to_scalar(&challenge_bytes));
         }
 
-        self.state = vec![];
         challenges
     }
 
@@ -95,7 +94,6 @@ impl<F: Field> EVMFs<F> {
             challenges.push(challenge_bytes);
         }
 
-        self.state = vec![];
         challenges
     }
 
@@ -108,18 +106,17 @@ impl<F: Field> EVMFs<F> {
     }
 
     fn push_to_transcript(&mut self, bytes: &[u8]) {
-        let mut pushed = bytes.to_vec();
+        let pushed = bytes.to_vec();
         self.transcript.append(&mut pushed.clone());
-        self.state.append(&mut pushed);
+        self.state = Self::keccak(&pushed);
     }
 
     /// Arthur
-    /// Removes `n` bytes elements from the transcript, appends them to the state and returns them
+    /// Removes `n` bytes elements from the transcript, set state to the hash of those elements and returns them
     pub fn next_bytes(&mut self, n: usize) -> Vec<u8> {
-        let mut sliced = self.transcript[..n].to_vec();
-        self.state.append(&mut sliced.clone());
+        let sliced = self.transcript[..n].to_vec();
+        self.state = Self::keccak(&sliced);
         self.transcript = self.transcript[n..].to_vec();
-        sliced.reverse(); // return them in same state before absorption
         sliced
     }
 
@@ -131,10 +128,9 @@ impl<F: Field> EVMFs<F> {
         let scalar_bytes = sliced.chunks(32);
         let mut scalars = vec![];
         for bytes in scalar_bytes {
-            self.state.append(&mut bytes.to_vec().clone()); // was absorbed after reverse, append as given from
-                                                            // transcript
             scalars.push(Self::bytes_to_scalar(&bytes));
         }
+        self.state = Self::keccak(&self.transcript[..n * 32]);
         self.transcript = self.transcript[n * 32..].to_vec();
         scalars
     }
@@ -159,8 +155,7 @@ impl<F: Field> EVMFs<F> {
     pub fn absorb_bytes(&mut self, bytes: &[u8]) {
         // when serialized uncompressed, F is serialized in be
         // so, assume bytes are be, hence need to reverse them
-        let mut le_bytes = bytes.to_vec();
-        le_bytes.reverse();
+        let le_bytes = bytes.to_vec();
         self.push_to_transcript(&le_bytes);
     }
 
@@ -168,10 +163,13 @@ impl<F: Field> EVMFs<F> {
     /// "Absorbs" provided scalars: appends them to the state and the transcript
     /// Returns Result, due to possible serialization errors for F to bytes serialization
     pub fn absorb_scalars(&mut self, scalars: &[F]) -> Result<(), ProofError> {
+        let mut push_to_transcript = vec![];
         for scalar in scalars {
             let bytes = Self::scalar_to_bytes(scalar)?;
-            self.push_to_transcript(&bytes);
+            push_to_transcript.append(&mut bytes.to_vec());
         }
+        self.push_to_transcript(&push_to_transcript);
+
         Ok(())
     }
 }
@@ -184,10 +182,6 @@ impl<F: Field> Serialize for EVMFs<F> {
         let mut state = serializer.serialize_struct("EVMFs", 2)?;
         let transcript_hex = format!("0x{}", hex::encode(&self.transcript));
         state.serialize_field("transcript", &transcript_hex)?;
-        assert!(
-            self.state.is_empty(),
-            "State should be empty when serializing"
-        );
         state.skip_field("state")?;
         state.end()
     }
