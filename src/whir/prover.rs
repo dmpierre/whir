@@ -1,6 +1,8 @@
 use super::{committer::Witness, parameters::WhirConfig, Statement, WhirProof};
 use crate::{
+    crypto::merkle_tree::keccak::KeccakDigest,
     domain::Domain,
+    evm_utils::evm_merkle::generate_multiproof,
     fs_utils::EVMFs,
     ntt::expand_from_coeff,
     parameters::FoldType,
@@ -66,6 +68,8 @@ where
     ) -> ProofResult<WhirProof<MerkleConfig, F>>
     where
         Merlin: FieldChallenges<F> + ByteWriter,
+        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+        MerkleConfig: Config<LeafDigest = KeccakDigest>,
     {
         assert!(self.validate_parameters());
         assert!(self.validate_statement(&statement));
@@ -187,7 +191,11 @@ where
         &self,
         evmfs: &mut EVMFs<F>,
         mut round_state: RoundState<F, MerkleConfig>,
-    ) -> ProofResult<WhirProof<MerkleConfig, F>> {
+    ) -> ProofResult<WhirProof<MerkleConfig, F>>
+    where
+        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+        MerkleConfig: Config<LeafDigest = KeccakDigest>,
+    {
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
@@ -200,43 +208,34 @@ where
         if round_state.round == self.0.n_rounds() {
             // Coefficients of the polynomial
             evmfs.absorb_scalars(folded_coefficients.coeffs())?;
-            // merlin.add_scalars(folded_coefficients.coeffs())?;
 
             // Final verifier queries and answers
-            // let queries_seed = evmfs.squeeze_bytes(32)[0];
-
-            // let mut final_gen_2 = evmfs.absorb_bytes(&queries_seed);
             let final_gen = evmfs.squeeze_scalars(self.0.final_queries);
             let max_target = BigUint::from(round_state.domain.folded_size(self.0.folding_factor));
-            let final_challenge_indexes = utils::dedup(
+            let mut final_challenge_indexes = utils::dedup(
                 final_gen
                     .into_iter()
                     .map(|idx| to_range(idx, &max_target))
                     .collect::<Vec<usize>>(),
             );
+            final_challenge_indexes.reverse();
+
             let merkle_proof = round_state
                 .prev_merkle
                 .generate_multi_proof(final_challenge_indexes.clone())
                 .unwrap();
 
-            // let mut queries_seed = [0u8; 32];
-            // merlin.fill_challenge_bytes(&mut queries_seed)?;
-            //let mut final_gen = rand_chacha::ChaCha20Rng::from_seed(queries_seed);
-            //let final_challenge_indexes = utils::dedup((0..self.0.final_queries).map(|_| {
-            //    final_gen.gen_range(0..round_state.domain.folded_size(self.0.folding_factor))
-            //}));
-
-            //let merkle_proof = round_state
-            //    .prev_merkle
-            //    .generate_multi_proof(final_challenge_indexes.clone())
-            //    .unwrap();
             let fold_size = 1 << self.0.folding_factor;
             let answers = final_challenge_indexes
+                .clone()
                 .into_iter()
                 .map(|i| {
                     round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec()
                 })
                 .collect();
+            let merkle_proof_1 =
+                generate_multiproof(&round_state.prev_merkle, &final_challenge_indexes, &answers);
+
             round_state.merkle_proofs.push((merkle_proof, answers));
 
             if self.0.final_pow_bits > 0. {

@@ -1,7 +1,8 @@
 use ark_crypto_primitives::{
     crh::{CRHScheme, TwoToOneCRHScheme},
-    merkle_tree::MerkleTree,
+    merkle_tree::{Config, MerkleTree},
 };
+use ark_ff::FftField;
 use ark_std::log2;
 
 use crate::{
@@ -11,22 +12,25 @@ use crate::{
 
 use super::hasher::{MerkleTreeEvmParams, SortedKeccakTwoToOneCRHScheme};
 
-pub struct EVMMultiProof {
-    pub merkle_tree: MerkleTree<MerkleTreeEvmParams<FieldBn256>>,
+pub struct EVMMultiProof<MerkleConfig: Config, F: FftField> {
+    pub merkle_tree: MerkleTree<MerkleConfig>,
     pub root: KeccakDigest,
     pub depth: u32,
     pub decommitments: Vec<KeccakDigest>,
     pub indices: Vec<usize>,
-    pub values: Vec<Vec<FieldBn256>>, // leaves pre-images
+    pub values: Vec<Vec<F>>, // leaves pre-images
 }
 
 // Implements multi merkle proofs.
 // Post: https://ethresear.ch/t/optimizing-merkle-tree-multi-queries/4912/3
-pub fn generate_multiproof(
-    mt: &MerkleTree<MerkleTreeEvmParams<FieldBn256>>,
+pub fn generate_multiproof<
+    MerkleConfig: Config<InnerDigest = KeccakDigest, LeafDigest = KeccakDigest>,
+    F: FftField,
+>(
+    mt: &MerkleTree<MerkleConfig>,
     indices: &[usize],
-    values: &Vec<Vec<FieldBn256>>,
-) -> EVMMultiProof {
+    values: &Vec<Vec<F>>,
+) -> EVMMultiProof<MerkleConfig, F> {
     let tree = [
         [mt.root()].to_vec(),
         mt.non_leaf_nodes.clone(),
@@ -63,11 +67,13 @@ pub fn generate_multiproof(
     };
 }
 
-pub fn verify_multiproof(multi_proof: &mut EVMMultiProof) -> bool {
+pub fn verify_multiproof<MerkleConfig: Config, F: FftField>(
+    multi_proof: &mut EVMMultiProof<MerkleConfig, F>,
+) -> bool {
     let mut queue = vec![];
     for i in 0..multi_proof.values.len() {
         let tree_idx = 2_usize.pow(multi_proof.depth) + multi_proof.indices[i];
-        let hash = EvmKeccakLeafHash::<FieldBn256>::evaluate(&(), multi_proof.values[i].clone());
+        let hash = EvmKeccakLeafHash::evaluate(&(), multi_proof.values[i].clone());
         queue.push((tree_idx, hash.unwrap()));
     }
     loop {
