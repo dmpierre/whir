@@ -81,7 +81,7 @@ dependencies = [
 [[package]]
 name = "ark-crypto-primitives"
 version = "0.4.0"
-source = "git+https://github.com/arkworks-rs/crypto-primitives#6b195553444650fb37663ee1919c9fd885f5dbd9"
+source = "git+https://github.com/dmpierre/crypto-primitives#74b0cb77c0baf4aed8ed897c9b1a1d63c98fc6aa"
 dependencies = [
  "ahash",
  "ark-crypto-primitives-macros",
@@ -96,6 +96,7 @@ dependencies = [
  "digest",
  "fnv",
  "hashbrown 0.14.5",
+ "merlin",
  "rayon",
  "sha2",
 ]
@@ -103,7 +104,7 @@ dependencies = [
 [[package]]
 name = "ark-crypto-primitives-macros"
 version = "0.4.0"
-source = "git+https://github.com/arkworks-rs/crypto-primitives#6b195553444650fb37663ee1919c9fd885f5dbd9"
+source = "git+https://github.com/dmpierre/crypto-primitives#74b0cb77c0baf4aed8ed897c9b1a1d63c98fc6aa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -969,6 +970,18 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
+
+[[package]]
+name = "merlin"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58c38e2799fc0978b65dfff8023ec7843e2330bb462f19198840b34b6582397d"
+dependencies = [
+ "byteorder",
+ "keccak",
+ "rand_core",
+ "zeroize",
+]
 
 [[package]]
 name = "nimue"

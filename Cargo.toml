@@ -46,7 +46,7 @@ rayon = ["dep:rayon"]
 
 [patch.crates-io]
 ark-std = { git = "https://github.com/arkworks-rs/std" }
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives" }
+ark-crypto-primitives = { git = "https://github.com/dmpierre/crypto-primitives" }
 ark-test-curves = { git = "https://github.com/WizardOfMenlo/algebra", branch = "fft_extensions" }
 ark-ff = { git = "https://github.com/WizardOfMenlo/algebra", branch = "fft_extensions" }
 ark-poly = { git = "https://github.com/WizardOfMenlo/algebra", branch = "fft_extensions" }
