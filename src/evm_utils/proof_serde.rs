@@ -8,6 +8,8 @@ use serde::{
 
 use crate::evm_utils::proof_converter::OpenZeppelinMultiProof;
 
+use super::evm_merkle::EVMMultiProof;
+
 struct OpenZeppelinMultiProofVisitor {}
 impl<'de> Visitor<'de> for OpenZeppelinMultiProofVisitor {
     type Value = OpenZeppelinMultiProof;
@@ -103,5 +105,26 @@ impl<T: PrimeField> EvmFieldElementSerDe for T {
         self.serialize_compressed(&mut byte_buf).unwrap();
         byte_buf.reverse();
         "0x".to_owned() + &hex::encode(byte_buf)
+    }
+}
+
+impl Serialize for EVMMultiProof {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("OpenZeppelinMultiProof", 3)?;
+
+        state.serialize_field(
+            "decommitments",
+            &self
+                .decommitments
+                .iter()
+                // "0x" is necessary for Foundry to recognize it as bytes32
+                .map(|digest| "0x".to_owned() + &hex::encode(digest.as_ref()))
+                .collect::<Vec<String>>(),
+        )?;
+        state.serialize_field("depth", &self.depth)?;
+        state.end()
     }
 }

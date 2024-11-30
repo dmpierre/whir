@@ -12,10 +12,9 @@ use crate::crypto::merkle_tree::{
     HashCounter,
 };
 
-/// Sorted hasher configuration
-/// Replicates the behavior of the OpenZeppelin MerkleTree implementation
-/// where the hash inputs are sorted before hashing
-/// (see https://github.com/OpenZeppelin/openzeppelin-contracts/blob/01ef448981be9d20ca85f2faf6ebdf591ce409f3/contracts/utils/cryptography/MerkleProof.sol#L217)
+// note: this is not sorting hashes
+// this is a legacy name due to the fact that we were using the OZ merkle tree implementation
+// initially
 pub struct SortedKeccakTwoToOneCRHScheme;
 
 impl TwoToOneCRHScheme for SortedKeccakTwoToOneCRHScheme {
@@ -32,8 +31,7 @@ impl TwoToOneCRHScheme for SortedKeccakTwoToOneCRHScheme {
         left_input: T,
         right_input: T,
     ) -> Result<Self::Output, ark_crypto_primitives::Error> {
-        let mut inputs = vec![left_input.borrow().as_ref(), right_input.borrow().as_ref()];
-        inputs.sort(); // Sort the inputs
+        let inputs = vec![left_input.borrow().as_ref(), right_input.borrow().as_ref()];
 
         let mut h = sha3::Keccak256::new();
         for input in inputs {

@@ -1,5 +1,6 @@
 use crate::evm_utils::proof_serde::EvmFieldElementSerDe;
 use crate::whir::parameters::{RoundConfig, WhirConfig};
+use crate::whir::EVMWhirProof;
 use crate::{
     crypto::{
         fields::{self},
@@ -24,6 +25,13 @@ use std::{
 pub struct OpenZeppelinMultiProof {
     pub(crate) proof: Vec<KeccakDigest>,
     pub(crate) proof_flags: Vec<bool>,
+}
+
+pub struct EVMFriendlyProof<F: FftField, M: Config, P: PowStrategy> {
+    pub whir_proof: EVMWhirProof<F>,
+    pub statement: Statement<F>,
+    pub arthur: EVMFs<F>,
+    pub config: WhirConfig<F, M, P>,
 }
 
 pub struct FullEvmProof<F: FftField, M: Config, P: PowStrategy> {
@@ -89,7 +97,7 @@ impl Serialize for RoundConfig {
     }
 }
 
-impl<F: PrimeField, M: Config, P: PowStrategy> Serialize for FullEvmProof<F, M, P> {
+impl<F: PrimeField, M: Config, P: PowStrategy> Serialize for EVMFriendlyProof<F, M, P> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
