@@ -95,6 +95,11 @@ mod evm_tests {
         soundness_type: SoundnessType,
         pow_bits: usize,
         fold_type: FoldType,
+    ) -> (
+        WhirConfig<F, MerkleConfig, PowStrategy>,
+        EVMFs<F>,
+        Statement<F>,
+        EVMWhirProof<F>,
     ) {
         let num_coeffs = 1 << num_variables;
 
@@ -134,17 +139,18 @@ mod evm_tests {
         let evm_witness = committer
             .evm_commit(&mut evmfs_merlin, polynomial.clone())
             .unwrap();
-        let evm_proof = prover.evm_prove(&mut evmfs_merlin, statement.clone(), evm_witness);
+        let evm_proof = prover
+            .evm_prove(&mut evmfs_merlin, statement.clone(), evm_witness)
+            .unwrap();
 
-        // assert!(evm_proof.is_ok());
-        // let mut evmfs_arthur = evmfs_merlin.to_arthur();
+        let mut evmfs_arthur = evmfs_merlin.to_arthur();
         // Return the untouched transcript
-        // let proof_transcript = evmfs_arthur.clone();
-        //assert!(verifier
-        //    .evm_verify(&mut evmfs_arthur, &statement, &evm_proof)
-        //    .is_ok());
+        let proof_transcript = evmfs_arthur.clone();
+        assert!(verifier
+            .evm_verify(&mut evmfs_arthur, &statement, &evm_proof)
+            .is_ok());
 
-        //(params, proof_transcript, statement, evm_proof)
+        (params, proof_transcript, statement, evm_proof)
     }
 
     #[test]

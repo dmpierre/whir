@@ -9,6 +9,7 @@ use crate::{crypto::merkle_tree::keccak::KeccakDigest, evm_utils::hasher::EvmKec
 
 use super::hasher::SortedKeccakTwoToOneCRHScheme;
 
+#[derive(Clone)]
 pub struct EVMMultiProof {
     pub depth: u32,
     pub decommitments: Vec<KeccakDigest>,
@@ -61,11 +62,12 @@ pub fn generate_multiproof<
 }
 
 pub fn verify_multiproof<F: FftField>(
-    multi_proof: &mut EVMMultiProof,
+    multi_proof: &EVMMultiProof,
     root: KeccakDigest,
     indices: Vec<usize>,
     values: Vec<Vec<F>>,
 ) -> bool {
+    let mut decommitments = multi_proof.decommitments.clone();
     let mut queue = vec![];
     // we need to iterate in reverse order
     for i in 0..values.len() {
@@ -81,10 +83,9 @@ pub fn verify_multiproof<F: FftField>(
             return hash == root;
         } else if index % 2 == 0 {
             let hash_to_push =
-                SortedKeccakTwoToOneCRHScheme::evaluate(&(), hash, multi_proof.decommitments[0])
-                    .unwrap();
+                SortedKeccakTwoToOneCRHScheme::evaluate(&(), hash, decommitments[0]).unwrap();
             queue.push((index / 2, hash_to_push));
-            multi_proof.decommitments = multi_proof.decommitments[1..].to_vec();
+            decommitments = decommitments[1..].to_vec();
         } else if queue.len() > 0 && queue[0].0 == index - 1 {
             let (_, sibling_hash) = queue[0];
             queue = queue[1..].to_vec();
@@ -93,10 +94,9 @@ pub fn verify_multiproof<F: FftField>(
             queue.push((index / 2, hash_to_push));
         } else {
             let hash_to_push =
-                SortedKeccakTwoToOneCRHScheme::evaluate(&(), multi_proof.decommitments[0], hash)
-                    .unwrap();
+                SortedKeccakTwoToOneCRHScheme::evaluate(&(), decommitments[0], hash).unwrap();
             queue.push((index / 2, hash_to_push));
-            multi_proof.decommitments = multi_proof.decommitments[1..].to_vec();
+            decommitments = decommitments[1..].to_vec();
         }
     }
 }
@@ -187,14 +187,10 @@ pub mod tests {
                             witness.merkle_leaves[i * fold_size..(i + 1) * fold_size].to_vec(),
                         );
                     }
-                    let mut multiproof =
+                    let multiproof =
                         generate_multiproof(&merkle_tree, indices.clone(), values.clone());
-                    let verify = verify_multiproof(
-                        &mut multiproof,
-                        merkle_tree.root(),
-                        indices.clone(),
-                        values,
-                    );
+                    let verify =
+                        verify_multiproof(&multiproof, merkle_tree.root(), indices.clone(), values);
                     assert!(verify);
                 }
             }

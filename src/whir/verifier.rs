@@ -14,6 +14,8 @@ use num_bigint::BigUint;
 use rand::{Rng, SeedableRng};
 
 use crate::{
+    crypto::merkle_tree::keccak::KeccakDigest,
+    evm_utils::evm_merkle::verify_multiproof,
     fs_utils::EVMFs,
     parameters::FoldType,
     poly_utils::{coeffs::CoefficientList, eq_poly_outside, fold::compute_fold, MultilinearPoint},
@@ -21,7 +23,7 @@ use crate::{
     utils::{self, expand_randomness},
 };
 
-use super::{parameters::WhirConfig, prover::to_range, Statement, WhirProof};
+use super::{parameters::WhirConfig, prover::to_range, EVMWhirProof, Statement, WhirProof};
 
 pub struct Verifier<F, MerkleConfig, PowStrategy>
 where
@@ -139,8 +141,11 @@ where
         evmfs: &mut EVMFs<F>,
         parsed_commitment: &ParsedCommitment<F, MerkleConfig::InnerDigest>,
         statement: &Statement<F>, // Will be needed later
-        whir_proof: &WhirProof<MerkleConfig, F>,
-    ) -> ProofResult<ParsedProof<F>> {
+        whir_proof: &EVMWhirProof<F>,
+    ) -> ProofResult<ParsedProof<F>>
+    where
+        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+    {
         // Derive combination randomness and first sumcheck polynomial
         let [combination_randomness_gen] = [evmfs.squeeze_scalars(1)[0]];
 
@@ -216,16 +221,13 @@ where
                 .iter()
                 .map(|index| exp_domain_gen.pow([*index as u64]))
                 .collect();
-            if !merkle_proof
-                .verify(
-                    &self.params.leaf_hash_params,
-                    &self.params.two_to_one_params,
-                    &prev_root,
-                    answers.iter().map(|a| a.as_ref()),
-                )
-                .unwrap()
-                || merkle_proof.leaf_indexes != stir_challenges_indexes
-            {
+
+            if !verify_multiproof(
+                merkle_proof,
+                prev_root,
+                stir_challenges_indexes.clone(),
+                answers.to_vec(),
+            ) {
                 return Err(ProofError::InvalidProof);
             }
 
@@ -278,7 +280,7 @@ where
             domain_size /= 2;
         }
 
-        let mut final_coefficients = evmfs.next_scalars(1 << self.params.final_sumcheck_rounds);
+        let final_coefficients = evmfs.next_scalars(1 << self.params.final_sumcheck_rounds);
         //let mut final_coefficients = vec![F::ZERO; 1 << self.params.final_sumcheck_rounds];
         //arthur.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
@@ -309,16 +311,12 @@ where
             .collect();
 
         let (final_merkle_proof, final_randomness_answers) = &whir_proof.0[whir_proof.0.len() - 1];
-        if !final_merkle_proof
-            .verify(
-                &self.params.leaf_hash_params,
-                &self.params.two_to_one_params,
-                &prev_root,
-                final_randomness_answers.iter().map(|a| a.as_ref()),
-            )
-            .unwrap()
-            || final_merkle_proof.leaf_indexes != final_randomness_indexes
-        {
+        if !verify_multiproof(
+            final_merkle_proof,
+            prev_root,
+            final_randomness_indexes.clone(),
+            final_randomness_answers.to_vec(),
+        ) {
             return Err(ProofError::InvalidProof);
         }
 
@@ -709,8 +707,11 @@ where
         &self,
         evmfs: &mut EVMFs<F>,
         statement: &Statement<F>,
-        whir_proof: &WhirProof<MerkleConfig, F>,
-    ) -> ProofResult<()> {
+        whir_proof: &EVMWhirProof<F>,
+    ) -> ProofResult<()>
+    where
+        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+    {
         // We first do a pass in which we rederive all the FS challenges
         // Then we will check the algebraic part (so to optimise inversions)
         let parsed_commitment = self.evm_parse_commitment(evmfs)?;
