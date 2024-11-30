@@ -5,20 +5,13 @@ use ark_crypto_primitives::{
 use ark_ff::FftField;
 use ark_std::log2;
 
-use crate::{
-    crypto::{fields::FieldBn256, merkle_tree::keccak::KeccakDigest},
-    evm_utils::hasher::EvmKeccakLeafHash,
-};
+use crate::{crypto::merkle_tree::keccak::KeccakDigest, evm_utils::hasher::EvmKeccakLeafHash};
 
-use super::hasher::{MerkleTreeEvmParams, SortedKeccakTwoToOneCRHScheme};
+use super::hasher::SortedKeccakTwoToOneCRHScheme;
 
-pub struct EVMMultiProof<MerkleConfig: Config, F: FftField> {
-    pub merkle_tree: MerkleTree<MerkleConfig>,
-    pub root: KeccakDigest,
+pub struct EVMMultiProof {
     pub depth: u32,
     pub decommitments: Vec<KeccakDigest>,
-    pub indices: Vec<usize>,
-    pub values: Vec<Vec<F>>, // leaves pre-images
 }
 
 // Implements multi merkle proofs.
@@ -28,9 +21,13 @@ pub fn generate_multiproof<
     F: FftField,
 >(
     mt: &MerkleTree<MerkleConfig>,
-    indices: &[usize],
-    values: &Vec<Vec<F>>,
-) -> EVMMultiProof<MerkleConfig, F> {
+    indices: Vec<usize>,
+    values: Vec<Vec<F>>,
+) -> EVMMultiProof {
+    let mut indices = indices.to_vec().clone();
+    let mut values = values.clone();
+    indices.reverse();
+    values.reverse();
     let tree = [
         [mt.root()].to_vec(),
         mt.non_leaf_nodes.clone(),
@@ -43,8 +40,8 @@ pub fn generate_multiproof<
     let mut known = vec![false; num_nodes];
     assert_eq!(known.len(), tree.len());
     let mut decommitments = vec![];
-    for i in indices {
-        known[2_usize.pow(depth as u32) + *i] = true;
+    for i in indices.clone() {
+        known[2_usize.pow(depth as u32) + i] = true;
     }
     for i in (1..=2_usize.pow(depth as u32) - 1).rev() {
         let left = known[2 * i];
@@ -58,22 +55,22 @@ pub fn generate_multiproof<
         known[i] = left || right;
     }
     return EVMMultiProof {
-        merkle_tree: mt.clone(),
-        root: mt.root(),
         decommitments,
-        indices: indices.to_vec(),
         depth,
-        values: values.clone(),
     };
 }
 
-pub fn verify_multiproof<MerkleConfig: Config, F: FftField>(
-    multi_proof: &mut EVMMultiProof<MerkleConfig, F>,
+pub fn verify_multiproof<F: FftField>(
+    multi_proof: &mut EVMMultiProof,
+    root: KeccakDigest,
+    indices: Vec<usize>,
+    values: Vec<Vec<F>>,
 ) -> bool {
     let mut queue = vec![];
-    for i in 0..multi_proof.values.len() {
-        let tree_idx = 2_usize.pow(multi_proof.depth) + multi_proof.indices[i];
-        let hash = EvmKeccakLeafHash::evaluate(&(), multi_proof.values[i].clone());
+    // we need to iterate in reverse order
+    for i in 0..values.len() {
+        let tree_idx = 2_usize.pow(multi_proof.depth) + indices[indices.len() - i - 1];
+        let hash = EvmKeccakLeafHash::evaluate(&(), values[values.len() - i - 1].clone());
         queue.push((tree_idx, hash.unwrap()));
     }
     loop {
@@ -81,7 +78,7 @@ pub fn verify_multiproof<MerkleConfig: Config, F: FftField>(
         let (index, hash) = queue[0];
         queue = queue[1..].to_vec();
         if index == 1 {
-            return hash == multi_proof.root;
+            return hash == root;
         } else if index % 2 == 0 {
             let hash_to_push =
                 SortedKeccakTwoToOneCRHScheme::evaluate(&(), hash, multi_proof.decommitments[0])
@@ -181,7 +178,7 @@ pub mod tests {
                     let mut indices: Vec<_> = step.sample_iter(&mut rng).take(i).collect();
                     indices = utils::dedup(indices);
                     // note that indices should be decreasing;
-                    indices.reverse();
+                    // indices.reverse();
                     // get values for the leaves at the specified indexes
                     let fold_size = 1 << folding_factor;
                     let mut values = vec![];
@@ -190,8 +187,14 @@ pub mod tests {
                             witness.merkle_leaves[i * fold_size..(i + 1) * fold_size].to_vec(),
                         );
                     }
-                    let mut multiproof = generate_multiproof(&merkle_tree, &indices, &values);
-                    let verify = verify_multiproof(&mut multiproof);
+                    let mut multiproof =
+                        generate_multiproof(&merkle_tree, indices.clone(), values.clone());
+                    let verify = verify_multiproof(
+                        &mut multiproof,
+                        merkle_tree.root(),
+                        indices.clone(),
+                        values,
+                    );
                     assert!(verify);
                 }
             }

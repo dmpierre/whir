@@ -1,8 +1,8 @@
-use super::{committer::Witness, parameters::WhirConfig, Statement, WhirProof};
+use super::{committer::Witness, parameters::WhirConfig, EVMWhirProof, Statement, WhirProof};
 use crate::{
     crypto::merkle_tree::keccak::KeccakDigest,
     domain::Domain,
-    evm_utils::evm_merkle::generate_multiproof,
+    evm_utils::evm_merkle::{generate_multiproof, verify_multiproof, EVMMultiProof},
     fs_utils::EVMFs,
     ntt::expand_from_coeff,
     parameters::FoldType,
@@ -24,7 +24,7 @@ use nimue::{
         ark::{FieldChallenges, FieldWriter},
         pow::{self, PoWChallenge},
     },
-    ByteChallenges, ByteWriter, Merlin, ProofResult,
+    ByteChallenges, ByteWriter, Merlin, ProofError, ProofResult,
 };
 use num_bigint::BigUint;
 use rand::{Rng, SeedableRng};
@@ -65,7 +65,7 @@ where
         evmfs: &mut EVMFs<F>,
         statement: Statement<F>,
         witness: Witness<F, MerkleConfig>,
-    ) -> ProofResult<WhirProof<MerkleConfig, F>>
+    ) -> ProofResult<EVMWhirProof<F>>
     where
         Merlin: FieldChallenges<F> + ByteWriter,
         MerkleConfig: Config<InnerDigest = KeccakDigest>,
@@ -114,7 +114,7 @@ where
         //    self.0.starting_folding_pow_bits,
         //)?;
 
-        let round_state = RoundState {
+        let round_state = EVMRoundState {
             domain: self.0.starting_domain.clone(),
             round: 0,
             sumcheck_prover,
@@ -190,8 +190,8 @@ where
     fn evm_round(
         &self,
         evmfs: &mut EVMFs<F>,
-        mut round_state: RoundState<F, MerkleConfig>,
-    ) -> ProofResult<WhirProof<MerkleConfig, F>>
+        mut round_state: EVMRoundState<F, MerkleConfig>,
+    ) -> ProofResult<EVMWhirProof<F>>
     where
         MerkleConfig: Config<InnerDigest = KeccakDigest>,
         MerkleConfig: Config<LeafDigest = KeccakDigest>,
@@ -212,31 +212,41 @@ where
             // Final verifier queries and answers
             let final_gen = evmfs.squeeze_scalars(self.0.final_queries);
             let max_target = BigUint::from(round_state.domain.folded_size(self.0.folding_factor));
-            let mut final_challenge_indexes = utils::dedup(
+            let final_challenge_indexes = utils::dedup(
                 final_gen
                     .into_iter()
                     .map(|idx| to_range(idx, &max_target))
                     .collect::<Vec<usize>>(),
             );
-            final_challenge_indexes.reverse();
 
-            let merkle_proof = round_state
-                .prev_merkle
-                .generate_multi_proof(final_challenge_indexes.clone())
-                .unwrap();
+            //let merkle_proof = round_state
+            //    .prev_merkle
+            //    .generate_multi_proof(final_challenge_indexes.clone())
+            //    .unwrap();
 
             let fold_size = 1 << self.0.folding_factor;
-            let answers = final_challenge_indexes
+            let answers: Vec<_> = final_challenge_indexes
                 .clone()
                 .into_iter()
                 .map(|i| {
                     round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec()
                 })
                 .collect();
-            let merkle_proof_1 =
-                generate_multiproof(&round_state.prev_merkle, &final_challenge_indexes, &answers);
+            let mut merkle_proof_1 = generate_multiproof(
+                &round_state.prev_merkle,
+                final_challenge_indexes.clone(),
+                answers.clone(),
+            );
+            if !verify_multiproof(
+                &mut merkle_proof_1,
+                round_state.prev_merkle.root(),
+                final_challenge_indexes,
+                answers.clone(),
+            ) {
+                return Err(ProofError::InvalidProof);
+            };
 
-            round_state.merkle_proofs.push((merkle_proof, answers));
+            round_state.merkle_proofs.push((merkle_proof_1, answers));
 
             if self.0.final_pow_bits > 0. {
                 evmfs.challenge_pow::<PowStrategy>(self.0.final_pow_bits)?;
@@ -251,7 +261,7 @@ where
                     self.0.final_folding_pow_bits,
                 )?;
 
-            return Ok(WhirProof(round_state.merkle_proofs));
+            return Ok(EVMWhirProof(round_state.merkle_proofs));
         }
 
         let round_params = &self.0.round_parameters[round_state.round];
@@ -337,15 +347,30 @@ where
             .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
             .collect();
 
-        let merkle_proof = round_state
-            .prev_merkle
-            .generate_multi_proof(stir_challenges_indexes.clone())
-            .unwrap();
+        //let merkle_proof = round_state
+        //    .prev_merkle
+        //    .generate_multi_proof(stir_challenges_indexes.clone())
+        //    .unwrap();
+
         let fold_size = 1 << self.0.folding_factor;
         let answers: Vec<_> = stir_challenges_indexes
             .iter()
             .map(|i| round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec())
             .collect();
+
+        let mut merkle_proof_1 = generate_multiproof(
+            &round_state.prev_merkle,
+            stir_challenges_indexes.clone(),
+            answers.clone(),
+        );
+        if !verify_multiproof(
+            &mut merkle_proof_1,
+            round_state.prev_merkle.root(),
+            stir_challenges_indexes.clone(),
+            answers.clone(),
+        ) {
+            return Err(ProofError::InvalidProof);
+        }
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers.clone();
 
@@ -379,7 +404,7 @@ where
                 CoefficientList::new(answers.to_vec()).evaluate(&round_state.folding_randomness)
             })),
         }
-        round_state.merkle_proofs.push((merkle_proof, answers));
+        round_state.merkle_proofs.push((merkle_proof_1, answers));
 
         if round_params.pow_bits > 0. {
             evmfs.challenge_pow::<PowStrategy>(round_params.pow_bits)?;
@@ -406,7 +431,7 @@ where
                 round_params.folding_pow_bits,
             )?;
 
-        let round_state = RoundState {
+        let round_state = EVMRoundState {
             round: round_state.round + 1,
             domain: new_domain,
             sumcheck_prover: round_state.sumcheck_prover,
@@ -623,6 +648,21 @@ where
 
         self.round(merlin, round_state)
     }
+}
+
+struct EVMRoundState<F, MerkleConfig>
+where
+    F: FftField,
+    MerkleConfig: Config,
+{
+    round: usize,
+    domain: Domain<F>,
+    sumcheck_prover: SumcheckProverNotSkipping<F>,
+    folding_randomness: MultilinearPoint<F>,
+    coefficients: CoefficientList<F>,
+    prev_merkle: MerkleTree<MerkleConfig>,
+    prev_merkle_answers: Vec<F>,
+    merkle_proofs: Vec<(EVMMultiProof, Vec<Vec<F>>)>,
 }
 
 struct RoundState<F, MerkleConfig>
