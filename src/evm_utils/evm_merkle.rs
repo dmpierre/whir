@@ -5,9 +5,10 @@ use ark_crypto_primitives::{
 use ark_ff::FftField;
 use ark_std::log2;
 
-use crate::{crypto::merkle_tree::keccak::KeccakDigest, evm_utils::hasher::EvmKeccakLeafHash};
-
-use super::hasher::SortedKeccakTwoToOneCRHScheme;
+use crate::{
+    crypto::merkle_tree::keccak::{KeccakDigest, KeccakTwoToOneCRHScheme},
+    evm_utils::hasher::EvmKeccakLeafHash,
+};
 
 #[derive(Clone)]
 pub struct EVMMultiProof {
@@ -83,18 +84,17 @@ pub fn verify_multiproof<F: FftField>(
             return hash == root;
         } else if index % 2 == 0 {
             let hash_to_push =
-                SortedKeccakTwoToOneCRHScheme::evaluate(&(), hash, decommitments[0]).unwrap();
+                KeccakTwoToOneCRHScheme::evaluate(&(), hash, decommitments[0]).unwrap();
             queue.push((index / 2, hash_to_push));
             decommitments = decommitments[1..].to_vec();
         } else if queue.len() > 0 && queue[0].0 == index - 1 {
             let (_, sibling_hash) = queue[0];
             queue = queue[1..].to_vec();
-            let hash_to_push =
-                SortedKeccakTwoToOneCRHScheme::evaluate(&(), sibling_hash, hash).unwrap();
+            let hash_to_push = KeccakTwoToOneCRHScheme::evaluate(&(), sibling_hash, hash).unwrap();
             queue.push((index / 2, hash_to_push));
         } else {
             let hash_to_push =
-                SortedKeccakTwoToOneCRHScheme::evaluate(&(), decommitments[0], hash).unwrap();
+                KeccakTwoToOneCRHScheme::evaluate(&(), decommitments[0], hash).unwrap();
             queue.push((index / 2, hash_to_push));
             decommitments = decommitments[1..].to_vec();
         }

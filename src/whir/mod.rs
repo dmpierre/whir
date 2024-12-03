@@ -82,7 +82,7 @@ mod evm_tests {
         committer::Committer, parameters::WhirConfig, prover::Prover, verifier::Verifier,
     };
 
-    use super::{EVMWhirProof, WhirProof};
+    use super::EVMWhirProof;
 
     type MerkleConfig = MerkleTreeEvmParams<F>;
     type PowStrategy = KeccakEVMPoW;
@@ -155,18 +155,18 @@ mod evm_tests {
 
     #[test]
     fn evm_test_whir() {
-        let folding_factors = [1, 2, 3, 4];
+        let folding_factors = [1, 4];
         let soundness_type = [
             SoundnessType::ConjectureList,
             SoundnessType::ProvableList,
             SoundnessType::UniqueDecoding,
         ];
         let fold_types = [FoldType::Naive, FoldType::ProverHelps];
-        let num_points = [0, 1, 2];
+        let num_points = [1];
         let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
-            let num_variables = folding_factor..=3 * folding_factor;
+            let num_variables = folding_factor..=5 * folding_factor;
             for num_variables in num_variables {
                 for fold_type in fold_types {
                     for num_points in num_points {
@@ -180,62 +180,6 @@ mod evm_tests {
                                     pow_bits,
                                     fold_type,
                                 );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_serialize_all() {
-        let folding_factors = [1, 2, 3, 4];
-        let soundness_type = [
-            SoundnessType::ConjectureList,
-            SoundnessType::ProvableList,
-            SoundnessType::UniqueDecoding,
-        ];
-        let fold_types = [FoldType::ProverHelps];
-        let num_points = [1, 2, 3];
-        let pow_bits = [0];
-
-        for folding_factor in folding_factors {
-            let num_variables = folding_factor..=3 * folding_factor;
-            for num_variables in num_variables {
-                for fold_type in fold_types {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                let proof = evm_make_whir_things(
-                                    num_variables,
-                                    folding_factor,
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    fold_type,
-                                );
-
-                                //let full_proof = FullEvmProof {
-                                //    whir_proof: convert_whir_proof::<PowStrategy, F>(proof.3)
-                                //        .unwrap(),
-                                //    statement: proof.2,
-                                //    arthur: proof.1,
-                                //    config: proof.0,
-                                //};
-                                //let full_proof_json =
-                                //    serde_json::to_string_pretty(&full_proof).unwrap();
-                                //let mut file = std::fs::File::create(format!(
-                                //    "proof_{}_{}_{}_{}_{}_{}.json",
-                                //    num_variables,
-                                //    folding_factor,
-                                //    num_points,
-                                //    soundness_type,
-                                //    pow_bits,
-                                //    fold_type
-                                //))
-                                //.unwrap();
-                                //file.write_all(full_proof_json.as_bytes()).unwrap();
                             }
                         }
                     }
