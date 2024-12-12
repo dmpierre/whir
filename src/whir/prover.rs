@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use super::{committer::Witness, parameters::WhirConfig, EVMWhirProof, Statement, WhirProof};
 use crate::{
     crypto::merkle_tree::keccak::KeccakDigest,
@@ -14,7 +16,10 @@ use crate::{
     sumcheck::prover_not_skipping::SumcheckProverNotSkipping,
     utils::{self, expand_randomness},
 };
-use ark_crypto_primitives::merkle_tree::{Config, MerkleTree, MultiPath};
+use ark_crypto_primitives::{
+    crh::{CRHScheme, TwoToOneCRHScheme},
+    merkle_tree::{Config, MerkleTree, MultiPath},
+};
 use ark_ff::FftField;
 use ark_ff::Field;
 use ark_poly::EvaluationDomain;
@@ -60,16 +65,23 @@ where
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn evm_prove(
+    pub fn evm_prove<C, TwoToOneC>(
         &self,
         evmfs: &mut EVMFs<F>,
         statement: Statement<F>,
         witness: Witness<F, MerkleConfig>,
     ) -> ProofResult<EVMWhirProof<F>>
     where
+        C: CRHScheme<Parameters = (), Output = KeccakDigest>,
+        TwoToOneC: TwoToOneCRHScheme<Parameters = (), Output = KeccakDigest, Input = KeccakDigest>,
         Merlin: FieldChallenges<F> + ByteWriter,
-        MerkleConfig: Config<InnerDigest = KeccakDigest>,
-        MerkleConfig: Config<LeafDigest = KeccakDigest>,
+        MerkleConfig: Config<
+            InnerDigest = KeccakDigest,
+            LeafDigest = KeccakDigest,
+            LeafHash = C,
+            TwoToOneHash = TwoToOneC,
+        >,
+        Vec<F>: Borrow<<C as CRHScheme>::Input>,
     {
         assert!(self.validate_parameters());
         assert!(self.validate_statement(&statement));
@@ -187,14 +199,21 @@ where
         self.round(merlin, round_state)
     }
 
-    fn evm_round(
+    fn evm_round<C, TwoToOneC>(
         &self,
         evmfs: &mut EVMFs<F>,
         mut round_state: EVMRoundState<F, MerkleConfig>,
     ) -> ProofResult<EVMWhirProof<F>>
     where
-        MerkleConfig: Config<InnerDigest = KeccakDigest>,
-        MerkleConfig: Config<LeafDigest = KeccakDigest>,
+        C: CRHScheme<Parameters = (), Output = KeccakDigest>,
+        TwoToOneC: TwoToOneCRHScheme<Parameters = (), Output = KeccakDigest, Input = KeccakDigest>,
+        MerkleConfig: Config<
+            InnerDigest = KeccakDigest,
+            LeafDigest = KeccakDigest,
+            LeafHash = C,
+            TwoToOneHash = TwoToOneC,
+        >,
+        Vec<F>: Borrow<<C as CRHScheme>::Input>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -237,7 +256,7 @@ where
                 final_challenge_indexes.clone(),
                 answers.clone(),
             );
-            if !verify_multiproof(
+            if !verify_multiproof::<F, C, TwoToOneC, MerkleConfig>(
                 &mut merkle_proof_1,
                 round_state.prev_merkle.root(),
                 final_challenge_indexes,
@@ -363,7 +382,7 @@ where
             stir_challenges_indexes.clone(),
             answers.clone(),
         );
-        if !verify_multiproof(
+        if !verify_multiproof::<F, C, TwoToOneC, MerkleConfig>(
             &mut merkle_proof_1,
             round_state.prev_merkle.root(),
             stir_challenges_indexes.clone(),

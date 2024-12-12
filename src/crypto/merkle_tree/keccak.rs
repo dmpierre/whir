@@ -17,7 +17,7 @@ use sha3::Digest;
 #[derive(
     Debug, Default, Clone, Copy, Eq, PartialEq, Hash, CanonicalSerialize, CanonicalDeserialize,
 )]
-pub struct KeccakDigest([u8; 32]);
+pub struct KeccakDigest(pub [u8; 32]);
 
 /// Display the KeccakDigest as EVM bytes32
 impl Display for KeccakDigest {

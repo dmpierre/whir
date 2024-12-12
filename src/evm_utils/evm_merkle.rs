@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use ark_crypto_primitives::{
     crh::{CRHScheme, TwoToOneCRHScheme},
     merkle_tree::{Config, MerkleTree},
@@ -5,10 +7,7 @@ use ark_crypto_primitives::{
 use ark_ff::FftField;
 use ark_std::log2;
 
-use crate::{
-    crypto::merkle_tree::keccak::{KeccakDigest, KeccakTwoToOneCRHScheme},
-    evm_utils::hasher::EvmKeccakLeafHash,
-};
+use crate::crypto::merkle_tree::keccak::KeccakDigest;
 
 #[derive(Clone)]
 pub struct EVMMultiProof {
@@ -19,7 +18,8 @@ pub struct EVMMultiProof {
 // Implements multi merkle proofs.
 // Post: https://ethresear.ch/t/optimizing-merkle-tree-multi-queries/4912/3
 pub fn generate_multiproof<
-    MerkleConfig: Config<InnerDigest = KeccakDigest, LeafDigest = KeccakDigest>,
+    C: CRHScheme<Parameters = ()>,
+    MerkleConfig: Config<InnerDigest = KeccakDigest, LeafDigest = KeccakDigest, LeafHash = C>,
     F: FftField,
 >(
     mt: &MerkleTree<MerkleConfig>,
@@ -62,18 +62,31 @@ pub fn generate_multiproof<
     };
 }
 
-pub fn verify_multiproof<F: FftField>(
+pub fn verify_multiproof<
+    F: FftField,
+    C: CRHScheme<Parameters = (), Output = KeccakDigest>,
+    TwoToOneC: TwoToOneCRHScheme<Parameters = (), Output = KeccakDigest, Input = KeccakDigest>,
+    MerkleConfig: Config<
+        InnerDigest = KeccakDigest,
+        LeafDigest = KeccakDigest,
+        LeafHash = C,
+        TwoToOneHash = TwoToOneC,
+    >,
+>(
     multi_proof: &EVMMultiProof,
     root: KeccakDigest,
     indices: Vec<usize>,
     values: Vec<Vec<F>>,
-) -> bool {
+) -> bool
+where
+    Vec<F>: Borrow<<C as CRHScheme>::Input>,
+{
     let mut decommitments = multi_proof.decommitments.clone();
     let mut queue = vec![];
     // we need to iterate in reverse order
     for i in 0..values.len() {
         let tree_idx = 2_usize.pow(multi_proof.depth) + indices[indices.len() - i - 1];
-        let hash = EvmKeccakLeafHash::evaluate(&(), values[values.len() - i - 1].clone());
+        let hash = MerkleConfig::LeafHash::evaluate(&(), values[values.len() - i - 1].clone());
         queue.push((tree_idx, hash.unwrap()));
     }
     loop {
@@ -84,17 +97,18 @@ pub fn verify_multiproof<F: FftField>(
             return hash == root;
         } else if index % 2 == 0 {
             let hash_to_push =
-                KeccakTwoToOneCRHScheme::evaluate(&(), hash, decommitments[0]).unwrap();
+                MerkleConfig::TwoToOneHash::evaluate(&(), hash, decommitments[0]).unwrap();
             queue.push((index / 2, hash_to_push));
             decommitments = decommitments[1..].to_vec();
         } else if queue.len() > 0 && queue[0].0 == index - 1 {
             let (_, sibling_hash) = queue[0];
             queue = queue[1..].to_vec();
-            let hash_to_push = KeccakTwoToOneCRHScheme::evaluate(&(), sibling_hash, hash).unwrap();
+            let hash_to_push =
+                MerkleConfig::TwoToOneHash::evaluate(&(), sibling_hash, hash).unwrap();
             queue.push((index / 2, hash_to_push));
         } else {
             let hash_to_push =
-                KeccakTwoToOneCRHScheme::evaluate(&(), decommitments[0], hash).unwrap();
+                MerkleConfig::TwoToOneHash::evaluate(&(), decommitments[0], hash).unwrap();
             queue.push((index / 2, hash_to_push));
             decommitments = decommitments[1..].to_vec();
         }
@@ -107,9 +121,9 @@ pub mod tests {
     use rand::prelude::Distribution;
 
     use crate::crypto::fields::FieldBn256;
-    use crate::crypto::merkle_tree::keccak::{self as merkle_tree};
+    use crate::crypto::merkle_tree::keccak::{self as merkle_tree, KeccakTwoToOneCRHScheme};
     use crate::evm_utils::evm_merkle::{generate_multiproof, verify_multiproof};
-    use crate::evm_utils::hasher::MerkleTreeEvmParams;
+    use crate::evm_utils::hasher::{EvmKeccakLeafHash, MerkleTreeEvmParams};
     use crate::fs_utils::{EVMFs, KeccakEVMPoW};
     use crate::parameters::{FoldType, MultivariateParameters, SoundnessType, WhirParameters};
     use crate::poly_utils::coeffs::CoefficientList;
@@ -189,8 +203,14 @@ pub mod tests {
                     }
                     let multiproof =
                         generate_multiproof(&merkle_tree, indices.clone(), values.clone());
-                    let verify =
-                        verify_multiproof(&multiproof, merkle_tree.root(), indices.clone(), values);
+                    let verify = verify_multiproof::<
+                        F,
+                        EvmKeccakLeafHash<F>,
+                        KeccakTwoToOneCRHScheme,
+                        MerkleConfig,
+                    >(
+                        &multiproof, merkle_tree.root(), indices.clone(), values
+                    );
                     assert!(verify);
                 }
             }

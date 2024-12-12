@@ -1,6 +1,9 @@
-use std::iter;
+use std::{borrow::Borrow, iter};
 
-use ark_crypto_primitives::merkle_tree::Config;
+use ark_crypto_primitives::{
+    crh::{CRHScheme, TwoToOneCRHScheme},
+    merkle_tree::Config,
+};
 use ark_ff::FftField;
 use ark_poly::EvaluationDomain;
 use nimue::{
@@ -136,7 +139,7 @@ where
         })
     }
 
-    fn evm_parse_proof(
+    fn evm_parse_proof<C, TwoToOneC>(
         &self,
         evmfs: &mut EVMFs<F>,
         parsed_commitment: &ParsedCommitment<F, MerkleConfig::InnerDigest>,
@@ -144,7 +147,15 @@ where
         whir_proof: &EVMWhirProof<F>,
     ) -> ProofResult<ParsedProof<F>>
     where
-        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+        C: CRHScheme<Parameters = (), Output = KeccakDigest>,
+        TwoToOneC: TwoToOneCRHScheme<Parameters = (), Output = KeccakDigest, Input = KeccakDigest>,
+        MerkleConfig: Config<
+            LeafDigest = KeccakDigest,
+            InnerDigest = KeccakDigest,
+            LeafHash = C,
+            TwoToOneHash = TwoToOneC,
+        >,
+        Vec<F>: Borrow<<C as CRHScheme>::Input>,
     {
         // Derive combination randomness and first sumcheck polynomial
         let [combination_randomness_gen] = [evmfs.squeeze_scalars(1)[0]];
@@ -222,7 +233,7 @@ where
                 .map(|index| exp_domain_gen.pow([*index as u64]))
                 .collect();
 
-            if !verify_multiproof(
+            if !verify_multiproof::<F, C, TwoToOneC, MerkleConfig>(
                 merkle_proof,
                 prev_root,
                 stir_challenges_indexes.clone(),
@@ -311,7 +322,7 @@ where
             .collect();
 
         let (final_merkle_proof, final_randomness_answers) = &whir_proof.0[whir_proof.0.len() - 1];
-        if !verify_multiproof(
+        if !verify_multiproof::<F, C, TwoToOneC, MerkleConfig>(
             final_merkle_proof,
             prev_root,
             final_randomness_indexes.clone(),
@@ -703,14 +714,22 @@ where
         result
     }
 
-    pub fn evm_verify(
+    pub fn evm_verify<C, TwoToOneC>(
         &self,
         evmfs: &mut EVMFs<F>,
         statement: &Statement<F>,
         whir_proof: &EVMWhirProof<F>,
     ) -> ProofResult<()>
     where
-        MerkleConfig: Config<InnerDigest = KeccakDigest>,
+        C: CRHScheme<Parameters = (), Output = KeccakDigest>,
+        TwoToOneC: TwoToOneCRHScheme<Parameters = (), Output = KeccakDigest, Input = KeccakDigest>,
+        MerkleConfig: Config<
+            InnerDigest = KeccakDigest,
+            LeafDigest = KeccakDigest,
+            LeafHash = C,
+            TwoToOneHash = TwoToOneC,
+        >,
+        Vec<F>: Borrow<<C as CRHScheme>::Input>,
     {
         // We first do a pass in which we rederive all the FS challenges
         // Then we will check the algebraic part (so to optimise inversions)

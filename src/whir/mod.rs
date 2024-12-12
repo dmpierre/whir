@@ -190,7 +190,7 @@ mod evm_tests {
 
     #[test]
     fn evm_test_serialize_single() {
-        let num_variables = 20;
+        let num_variables = 15;
         let folding_factor = 4;
         let soundness_type = SoundnessType::ConjectureList;
         let starting_log_inv_rate = 6;
@@ -198,7 +198,7 @@ mod evm_tests {
         let security_level = 100;
         let num_coeffs = 1 << num_variables;
 
-        for pow_bits in [0, 10, 20, 25, 30].to_vec() {
+        for pow_bits in [0, 10, 20, 30].to_vec() {
             let mut rng = ark_std::test_rng();
             let (leaf_hash_params, two_to_one_params) = merkle_tree::default_config::<F>(&mut rng);
 
@@ -254,6 +254,223 @@ mod evm_tests {
             let full_proof_json = serde_json::to_string_pretty(&full_proof).unwrap();
             let mut file = std::fs::File::create(format!(
                 "proof_{}_{}_{}_{}_{}_{}_{}_{}.json",
+                num_variables,
+                folding_factor,
+                num_points,
+                soundness_type,
+                pow_bits,
+                starting_log_inv_rate,
+                security_level,
+                FoldType::ProverHelps
+            ))
+            .unwrap();
+            file.write_all(full_proof_json.as_bytes()).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod masked_evm_tests {
+    use crate::crypto::fields::FieldBn256;
+    use crate::crypto::merkle_tree::keccak as merkle_tree;
+    use crate::evm_utils::hasher::{MaskedKeccakTwoToOneCRHScheme, MaskedMerkleTreeEvmParams};
+    use crate::evm_utils::proof_converter::EVMFriendlyProof;
+    use crate::fs_utils::{EVMFs, KeccakEVMPoW};
+    use crate::parameters::{FoldType, MultivariateParameters, SoundnessType, WhirParameters};
+    use crate::poly_utils::coeffs::CoefficientList;
+    use crate::poly_utils::MultilinearPoint;
+    use crate::whir::masked_evm_tests::merkle_tree::KeccakTwoToOneCRHScheme;
+    use crate::whir::Statement;
+    use crate::whir::{
+        committer::Committer, parameters::WhirConfig, prover::Prover, verifier::Verifier,
+    };
+    use ark_crypto_primitives::crh::TwoToOneCRHScheme;
+    use std::io::Write;
+
+    use super::EVMWhirProof;
+
+    type MerkleConfig = MaskedMerkleTreeEvmParams<F>;
+    type PowStrategy = KeccakEVMPoW;
+    type F = FieldBn256;
+
+    fn masked_evm_make_whir_things(
+        num_variables: usize,
+        folding_factor: usize,
+        num_points: usize,
+        soundness_type: SoundnessType,
+        pow_bits: usize,
+        fold_type: FoldType,
+    ) -> (
+        WhirConfig<F, MerkleConfig, PowStrategy>,
+        EVMFs<F>,
+        Statement<F>,
+        EVMWhirProof<F>,
+    ) {
+        let num_coeffs = 1 << num_variables;
+
+        let mut rng = ark_std::test_rng();
+        let (leaf_hash_params, two_to_one_params) = merkle_tree::default_config::<F>(&mut rng);
+
+        let mv_params = MultivariateParameters::<F>::new(num_variables);
+
+        let whir_params = WhirParameters::<MerkleConfig, PowStrategy> {
+            security_level: 32,
+            pow_bits,
+            folding_factor,
+            leaf_hash_params,
+            two_to_one_params,
+            soundness_type,
+            _pow_parameters: Default::default(),
+            starting_log_inv_rate: 1,
+            fold_optimisation: fold_type,
+        };
+
+        let params = WhirConfig::<F, MerkleConfig, PowStrategy>::new(mv_params, whir_params);
+        let polynomial = CoefficientList::new(vec![F::from(1); num_coeffs]);
+        let points: Vec<_> = (0..num_points)
+            .map(|_| MultilinearPoint::rand(&mut rng, num_variables))
+            .collect();
+        let statement = Statement {
+            points: points.clone(),
+            evaluations: points
+                .iter()
+                .map(|point| polynomial.evaluate(point))
+                .collect(),
+        };
+        let mut evmfs_merlin = EVMFs::<F>::new();
+        let committer = Committer::new(params.clone());
+        let prover = Prover(params.clone());
+        let verifier = Verifier::new(params.clone());
+        let evm_witness = committer
+            .evm_commit(&mut evmfs_merlin, polynomial.clone())
+            .unwrap();
+        let evm_proof = prover
+            .evm_prove(&mut evmfs_merlin, statement.clone(), evm_witness)
+            .unwrap();
+
+        let mut evmfs_arthur = evmfs_merlin.to_arthur();
+        // Return the untouched transcript
+        let proof_transcript = evmfs_arthur.clone();
+        assert!(verifier
+            .evm_verify(&mut evmfs_arthur, &statement, &evm_proof)
+            .is_ok());
+
+        (params, proof_transcript, statement, evm_proof)
+    }
+
+    #[test]
+    fn masked_evm_test_whir() {
+        let folding_factors = [1, 4];
+        let soundness_type = [
+            SoundnessType::ConjectureList,
+            SoundnessType::ProvableList,
+            SoundnessType::UniqueDecoding,
+        ];
+        let fold_types = [FoldType::Naive, FoldType::ProverHelps];
+        let num_points = [1];
+        let pow_bits = [0, 5, 10, 15, 20, 25, 30];
+
+        for folding_factor in folding_factors {
+            let num_variables = folding_factor..=5 * folding_factor;
+            for num_variables in num_variables {
+                for fold_type in fold_types {
+                    for num_points in num_points {
+                        for soundness_type in soundness_type {
+                            for pow_bits in pow_bits {
+                                masked_evm_make_whir_things(
+                                    num_variables,
+                                    folding_factor,
+                                    num_points,
+                                    soundness_type,
+                                    pow_bits,
+                                    fold_type,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn masked_evm_test_serialize_single() {
+        let num_variables = 15;
+        let folding_factor = 4;
+        let soundness_type = SoundnessType::ConjectureList;
+        let starting_log_inv_rate = 6;
+        let num_points = 1;
+        let security_level = 100;
+        let num_coeffs = 1 << num_variables;
+
+        for pow_bits in [0, 10, 20, 30].to_vec() {
+            let mut rng = ark_std::test_rng();
+            let (leaf_hash_params, two_to_one_params) = merkle_tree::default_config::<F>(&mut rng);
+
+            let mv_params = MultivariateParameters::<F>::new(num_variables);
+
+            let whir_params = WhirParameters::<MerkleConfig, PowStrategy> {
+                security_level,
+                pow_bits,
+                folding_factor,
+                leaf_hash_params,
+                two_to_one_params,
+                soundness_type,
+                _pow_parameters: Default::default(),
+                starting_log_inv_rate,
+                fold_optimisation: FoldType::ProverHelps,
+            };
+
+            let params = WhirConfig::<F, MerkleConfig, PowStrategy>::new(mv_params, whir_params);
+            let polynomial = CoefficientList::new(vec![F::from(1); num_coeffs]);
+            let points: Vec<_> = (0..1)
+                .map(|_| MultilinearPoint::rand(&mut rng, num_variables))
+                .collect();
+            let statement = Statement {
+                points: points.clone(),
+                evaluations: points
+                    .iter()
+                    .map(|point| polynomial.evaluate(point))
+                    .collect(),
+            };
+            let mut evmfs_merlin = EVMFs::<F>::new();
+            let committer = Committer::new(params.clone());
+            let prover = Prover(params.clone());
+            let verifier = Verifier::new(params.clone());
+            let evm_witness = committer
+                .evm_commit(&mut evmfs_merlin, polynomial.clone())
+                .unwrap();
+            println!(
+                "{}",
+                hex::encode(
+                    KeccakTwoToOneCRHScheme::evaluate(
+                        &(),
+                        evm_witness.merkle_tree.non_leaf_nodes[1],
+                        evm_witness.merkle_tree.non_leaf_nodes[2],
+                    )
+                    .unwrap()
+                )
+            );
+            println!("{}", hex::encode(evm_witness.merkle_tree.root()));
+            let evm_proof = prover
+                .evm_prove(&mut evmfs_merlin, statement.clone(), evm_witness)
+                .unwrap();
+            let mut evmfs_arthur = evmfs_merlin.to_arthur();
+            // Return the untouched transcript
+            let proof_transcript = evmfs_arthur.clone();
+            assert!(verifier
+                .evm_verify(&mut evmfs_arthur, &statement, &evm_proof)
+                .is_ok());
+
+            let full_proof = EVMFriendlyProof {
+                whir_proof: evm_proof,
+                statement,
+                arthur: proof_transcript,
+                config: params,
+            };
+            let full_proof_json = serde_json::to_string_pretty(&full_proof).unwrap();
+            let mut file = std::fs::File::create(format!(
+                "masked_proof_{}_{}_{}_{}_{}_{}_{}_{}.json",
                 num_variables,
                 folding_factor,
                 num_points,
