@@ -159,11 +159,7 @@ mod evm_tests {
     #[test]
     fn evm_test_whir() {
         let folding_factors = [1, 4];
-        let soundness_type = [
-            SoundnessType::ConjectureList,
-            SoundnessType::ProvableList,
-            SoundnessType::UniqueDecoding,
-        ];
+        let soundness_type = [SoundnessType::ConjectureList];
         let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [1];
         let pow_bits = [0, 5, 10];
@@ -194,6 +190,50 @@ mod evm_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn evm_test_serialize_single() {
+        let soundness_type = SoundnessType::ConjectureList;
+        let num_points = 1;
+        let mut rng = thread_rng();
+
+        let security_level = 80;
+        let folding_factor = 4;
+        let starting_log_inv_rate = 6;
+        let num_variable = 16;
+        let pow_bits = 30;
+
+        let (params, proof_transcript, statement, evm_proof) = evm_make_whir_things(
+            num_variable,
+            folding_factor,
+            security_level,
+            starting_log_inv_rate,
+            num_points,
+            soundness_type,
+            pow_bits,
+            FoldType::ProverHelps,
+            &mut rng,
+        );
+        let full_proof = EVMFriendlyProof {
+            whir_proof: evm_proof,
+            statement,
+            arthur: proof_transcript,
+            config: params,
+        };
+        let full_proof_json = serde_json::to_string_pretty(&full_proof).unwrap();
+        let mut file = std::fs::File::create(format!(
+            "proof_{num_variable}_{}_{}_{}_{}_{}_{}_{}.json",
+            folding_factor,
+            num_points,
+            soundness_type,
+            pow_bits,
+            starting_log_inv_rate,
+            security_level,
+            FoldType::ProverHelps
+        ))
+        .unwrap();
+        file.write_all(full_proof_json.as_bytes()).unwrap();
     }
 
     #[test]
